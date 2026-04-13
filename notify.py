@@ -184,6 +184,10 @@ def main(event_type):
 
     elif event_type == "permission":
         tool_name = context.get("tool_name", "Unknown")
+        # 只对白名单中的工具发通知，过滤交互类工具（如 AskUserQuestion）
+        permission_tools = config.get("permission_tools", ["Bash", "Write", "Edit"])
+        if tool_name not in permission_tools:
+            sys.exit(0)
         tool_input = context.get("tool_input", {})
         # 权限审批立即发送，不做防抖
         card = client.build_permission_card(cwd=cwd, tool_name=tool_name, tool_input=tool_input)

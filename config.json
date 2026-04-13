@@ -7,5 +7,7 @@
   "notify_on_stop": true,
   "notify_on_permission": true,
   "max_summary_length": 200,
-  "min_task_duration": 120
+  "min_task_duration": 120,
+  "debounce_seconds": 20,
+  "permission_tools": ["Bash", "Write", "Edit"]
 }
