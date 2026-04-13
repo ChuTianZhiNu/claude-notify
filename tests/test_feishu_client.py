@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 def test_load_config_missing_file():
@@ -66,3 +66,52 @@ def test_load_config_defaults():
         assert result["max_summary_length"] == 200
     finally:
         os.unlink(path)
+
+
+def test_get_tenant_access_token_success():
+    """成功获取 token 应缓存并返回"""
+    from feishu_client import FeishuClient
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "code": 0,
+        "tenant_access_token": "t-test-token",
+        "expire": 7200
+    }
+    with patch("feishu_client.requests.post", return_value=mock_response) as mock_post:
+        client = FeishuClient({"app_id": "cli_test", "app_secret": "secret_test", "open_id": "ou_test"})
+        token = client.get_access_token()
+    assert token == "t-test-token"
+    assert mock_post.call_count == 1
+
+
+def test_get_tenant_access_token_cached():
+    """token 已缓存时不应重复请求"""
+    from feishu_client import FeishuClient
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "code": 0,
+        "tenant_access_token": "t-test-token",
+        "expire": 7200
+    }
+    with patch("feishu_client.requests.post", return_value=mock_response):
+        client = FeishuClient({"app_id": "cli_test", "app_secret": "secret_test", "open_id": "ou_test"})
+        token1 = client.get_access_token()
+        token2 = client.get_access_token()
+    assert token1 == token2
+
+
+def test_get_tenant_access_token_retry():
+    """API 返回错误码时应返回 None"""
+    from feishu_client import FeishuClient
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "code": 9999,
+        "msg": "invalid app_id"
+    }
+    with patch("feishu_client.requests.post", return_value=mock_response):
+        client = FeishuClient({"app_id": "cli_bad", "app_secret": "bad", "open_id": "ou_test"})
+        token = client.get_access_token()
+    assert token is None
