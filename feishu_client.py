@@ -2,6 +2,7 @@ import json
 import sys
 import os
 import requests
+from datetime import datetime
 
 _FEISHU_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 _FEISHU_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
@@ -56,3 +57,53 @@ class FeishuClient:
         except Exception as e:
             print(f"[feishu-notify] 获取 token 异常: {e}", file=sys.stderr)
             return None
+
+    def build_stop_card(self, cwd, status, summary, max_length=200):
+        """构建任务完成通知卡片。"""
+        if status == "success":
+            status_tag = "✅ 任务完成"
+        else:
+            status_tag = "❌ 任务失败"
+        if summary and len(summary) > max_length:
+            summary = summary[: max_length - 3] + "..."
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        elements = [
+            {"tag": "markdown", "content": f"**{status_tag}**"},
+            {"tag": "hr"},
+            {"tag": "markdown", "content": f"📁 **项目:** `{cwd}`"},
+        ]
+        if summary:
+            elements.append({"tag": "markdown", "content": f"📝 **摘要:** {summary}"})
+        elements.append({"tag": "hr"})
+        elements.append({"tag": "markdown", "content": f"🕐 {now}"})
+        card = {
+            "header": {"title": {"tag": "plain_text", "content": "Claude Code 通知"}},
+            "elements": elements,
+        }
+        return {
+            "msg_type": "interactive",
+            "content": json.dumps(card),
+        }
+
+    def build_permission_card(self, cwd, tool_name, tool_input):
+        """构建权限审批通知卡片。"""
+        input_str = json.dumps(tool_input, ensure_ascii=False, indent=2) if tool_input else "无"
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        elements = [
+            {"tag": "markdown", "content": "**⚠️ 需要权限审批**"},
+            {"tag": "hr"},
+            {"tag": "markdown", "content": f"📁 **项目:** `{cwd}`"},
+            {"tag": "markdown", "content": f"🔧 **工具:** `{tool_name}`"},
+            {"tag": "hr"},
+            {"tag": "markdown", "content": f"📋 **请求内容:**\n```\n{input_str}\n```"},
+            {"tag": "hr"},
+            {"tag": "markdown", "content": f"🕐 {now}"},
+        ]
+        card = {
+            "header": {"title": {"tag": "plain_text", "content": "Claude Code 权限审批"}},
+            "elements": elements,
+        }
+        return {
+            "msg_type": "interactive",
+            "content": json.dumps(card),
+        }

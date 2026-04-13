@@ -115,3 +115,55 @@ def test_get_tenant_access_token_retry():
         client = FeishuClient({"app_id": "cli_bad", "app_secret": "bad", "open_id": "ou_test"})
         token = client.get_access_token()
     assert token is None
+
+
+def test_build_stop_card_success():
+    """任务完成的成功卡片应包含正确字段"""
+    from feishu_client import FeishuClient
+    client = FeishuClient({"app_id": "cli_test", "app_secret": "secret_test", "open_id": "ou_test"})
+    card = client.build_stop_card(
+        cwd="/Users/test/project",
+        status="success",
+        summary="已完成认证模块重构",
+        max_length=200,
+    )
+    assert card["msg_type"] == "interactive"
+    content = json.loads(card["content"])
+    elements = content["elements"]
+    full_text = json.dumps(elements, ensure_ascii=False)
+    assert "✅" in full_text
+    assert "/Users/test/project" in full_text
+    assert "已完成认证模块重构" in full_text
+
+
+def test_build_stop_card_truncated_summary():
+    """摘要超长时应该被截断"""
+    from feishu_client import FeishuClient
+    client = FeishuClient({"app_id": "cli_test", "app_secret": "secret_test", "open_id": "ou_test"})
+    long_summary = "x" * 500
+    card = client.build_stop_card(
+        cwd="/Users/test/project",
+        status="success",
+        summary=long_summary,
+        max_length=100,
+    )
+    content = json.loads(card["content"])
+    full_text = json.dumps(content)
+    assert "..." in full_text
+
+
+def test_build_permission_card():
+    """权限审批卡片应包含工具名和输入参数"""
+    from feishu_client import FeishuClient
+    client = FeishuClient({"app_id": "cli_test", "app_secret": "secret_test", "open_id": "ou_test"})
+    card = client.build_permission_card(
+        cwd="/Users/test/project",
+        tool_name="Bash",
+        tool_input={"command": "rm -rf /tmp/test"},
+    )
+    assert card["msg_type"] == "interactive"
+    content = json.loads(card["content"])
+    full_text = json.dumps(content, ensure_ascii=False)
+    assert "⚠️" in full_text
+    assert "Bash" in full_text
+    assert "rm -rf /tmp/test" in full_text
