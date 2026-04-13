@@ -1,10 +1,11 @@
 {
   "notify_type": "webhook",
-  "webhook_url": "",
+  "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/90f5c313-6c95-44fa-8f78-bdfed06d9d7a",
   "app_id": "",
   "app_secret": "",
   "open_id": "",
   "notify_on_stop": true,
   "notify_on_permission": true,
-  "max_summary_length": 200
+  "max_summary_length": 200,
+  "min_task_duration": 60
 }
