@@ -1,0 +1,8 @@
+{
+  "app_id": "",
+  "app_secret": "",
+  "open_id": "",
+  "notify_on_stop": true,
+  "notify_on_permission": true,
+  "max_summary_length": 200
+}
