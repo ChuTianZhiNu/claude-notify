@@ -2,6 +2,12 @@ import json
 import sys
 import os
 
+try:
+    import requests  # noqa: F401
+except ImportError:
+    print("[feishu-notify] 缺少依赖，请运行: pip install requests", file=sys.stderr)
+    sys.exit(0)
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from feishu_client import load_config, FeishuClient
