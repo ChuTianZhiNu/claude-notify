@@ -16,6 +16,7 @@ DEFAULTS = {
     "notify_on_permission": True,
     "max_summary_length": 200,
     "min_task_duration": 60,
+    "debounce_seconds": 20,
 }
 
 TIMESTAMPS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".timestamps")

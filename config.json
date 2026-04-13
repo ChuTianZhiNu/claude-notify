@@ -7,5 +7,5 @@
   "notify_on_stop": true,
   "notify_on_permission": true,
   "max_summary_length": 200,
-  "min_task_duration": 60
+  "min_task_duration": 120
 }

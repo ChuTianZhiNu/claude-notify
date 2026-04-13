@@ -2,6 +2,7 @@ import json
 import sys
 import os
 import time
+import subprocess
 
 try:
     import requests  # noqa: F401
@@ -12,6 +13,11 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from feishu_client import load_config, FeishuClient, WebhookClient, TIMESTAMPS_DIR
+
+PENDING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".pending")
+
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+NOTIFY_SCRIPT = os.path.join(PLUGIN_DIR, "notify.py")
 
 
 def create_client(config):
@@ -33,11 +39,16 @@ def create_client(config):
 
 
 def record_timestamp(session_id):
-    """记录用户发消息的时间戳。"""
+    """记录用户发消息的时间戳，同时清除该 session 的待发送通知。"""
     os.makedirs(TIMESTAMPS_DIR, exist_ok=True)
     ts_file = os.path.join(TIMESTAMPS_DIR, f"{session_id}.ts")
     with open(ts_file, "w") as f:
         f.write(str(time.time()))
+
+    # 清除待发送通知（用户有新操作，取消 pending 的通知）
+    pending_file = os.path.join(PENDING_DIR, f"{session_id}.json")
+    if os.path.exists(pending_file):
+        os.remove(pending_file)
 
 
 def get_task_duration(session_id):
@@ -51,6 +62,48 @@ def get_task_duration(session_id):
         return time.time() - start_time
     except (ValueError, OSError):
         return None
+
+
+def send_pending(pending_file):
+    """读取待发送文件并发送通知。"""
+    try:
+        with open(pending_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not os.path.exists(pending_file):
+            return
+
+        config = load_config()
+        if not config:
+            return
+
+        client = create_client(config)
+        if not client:
+            return
+
+        msg_type = data.get("msg_type")
+        if msg_type == "stop":
+            card = client.build_stop_card(
+                cwd=data["cwd"],
+                status="success",
+                summary=data["summary"],
+                max_length=data.get("max_length", 200),
+            )
+        elif msg_type == "permission":
+            card = client.build_permission_card(
+                cwd=data["cwd"],
+                tool_name=data["tool_name"],
+                tool_input=data["tool_input"],
+            )
+        else:
+            return
+
+        client.send_message(card)
+    except Exception:
+        pass
+    finally:
+        if os.path.exists(pending_file):
+            os.remove(pending_file)
 
 
 def main(event_type):
@@ -68,9 +121,16 @@ def main(event_type):
 
     session_id = context.get("session_id", "default")
 
-    # record: 记录用户发消息的时间戳
+    # record: 记录时间戳 + 清除 pending 通知
     if event_type == "record":
         record_timestamp(session_id)
+        sys.exit(0)
+
+    # flush_pending: 后台进程调用，检查 pending 文件是否仍存在并发送
+    if event_type == "flush_pending":
+        pending_file = sys.argv[2] if len(sys.argv) > 2 else None
+        if pending_file and os.path.exists(pending_file):
+            send_pending(pending_file)
         sys.exit(0)
 
     # 检查开关
@@ -97,17 +157,35 @@ def main(event_type):
             sys.exit(0)
 
         summary = context.get("last_assistant_message", "")
-        # 在摘要中附加执行时长
         if duration is not None:
             minutes = int(duration // 60)
             seconds = int(duration % 60)
             summary = f"[耗时 {minutes}分{seconds}秒] {summary}"
 
-        card = client.build_stop_card(cwd=cwd, status="success", summary=summary, max_length=max_length)
-        client.send_message(card)
+        # 写入 pending 文件，延迟发送（防抖）
+        debounce_seconds = config.get("debounce_seconds", 20)
+        os.makedirs(PENDING_DIR, exist_ok=True)
+        pending_file = os.path.join(PENDING_DIR, f"{session_id}.json")
+        with open(pending_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "msg_type": "stop",
+                "cwd": cwd,
+                "summary": summary,
+                "max_length": max_length,
+            }, f, ensure_ascii=False)
+
+        # 后台等待 debounce_seconds 后检查并发送
+        subprocess.Popen(
+            f"sleep {debounce_seconds} && python3 {NOTIFY_SCRIPT} flush_pending {pending_file}",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
     elif event_type == "permission":
         tool_name = context.get("tool_name", "Unknown")
         tool_input = context.get("tool_input", {})
+        # 权限审批立即发送，不做防抖
         card = client.build_permission_card(cwd=cwd, tool_name=tool_name, tool_input=tool_input)
         client.send_message(card)
 
@@ -115,7 +193,7 @@ def main(event_type):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2 or sys.argv[1] not in ("stop", "permission", "record"):
-        print("[feishu-notify] 用法: notify.py <stop|permission|record>", file=sys.stderr)
+    if len(sys.argv) < 2 or sys.argv[1] not in ("stop", "permission", "record", "flush_pending"):
+        print("[feishu-notify] 用法: notify.py <stop|permission|record|flush_pending>", file=sys.stderr)
         sys.exit(0)
     main(sys.argv[1])
