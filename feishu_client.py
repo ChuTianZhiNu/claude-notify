@@ -183,17 +183,24 @@ class WebhookClient:
         return build_permission_card(cwd, tool_name, tool_input)
 
     def send_message(self, message_body):
-        """通过 Webhook 发送消息。"""
+        """通过 Webhook 发送消息。Webhook 使用 card 字段（对象）而非 content（字符串）。"""
         try:
+            body = {
+                "msg_type": message_body.get("msg_type", "interactive"),
+            }
+            if message_body.get("msg_type") == "interactive":
+                body["card"] = json.loads(message_body["content"])
+            else:
+                body["content"] = message_body["content"]
             resp = requests.post(
                 self.webhook_url,
-                json=message_body,
+                json=body,
                 timeout=_REQUEST_TIMEOUT,
             )
             data = resp.json()
             if data.get("code") == 0:
                 return True
-            print(f"[feishu-notify] Webhook 发送失败: {data.get('msg')}", file=sys.stderr)
+            print(f"[feishu-notify] Webhook 发送失败: {data.get('msg', data)}", file=sys.stderr)
             return False
         except Exception as e:
             print(f"[feishu-notify] Webhook 发送异常: {e}", file=sys.stderr)
