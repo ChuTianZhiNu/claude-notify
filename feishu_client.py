@@ -107,3 +107,50 @@ class FeishuClient:
             "msg_type": "interactive",
             "content": json.dumps(card),
         }
+
+    def send_message(self, message_body):
+        """发送消息到飞书，失败自动重试一次（清除 token 缓存）。"""
+        token = self.get_access_token()
+        if not token:
+            return False
+        try:
+            resp = requests.post(
+                _FEISHU_MSG_URL,
+                params={"receive_id_type": "open_id"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json={
+                    "receive_id": self.open_id,
+                    **message_body,
+                },
+                timeout=_REQUEST_TIMEOUT,
+            )
+            data = resp.json()
+            if data.get("code") == 0:
+                return True
+            print(f"[feishu-notify] 发送消息失败: {data.get('msg')}", file=sys.stderr)
+            # 清除 token 缓存重试一次
+            self._token = None
+            token = self.get_access_token()
+            if not token:
+                return False
+            resp = requests.post(
+                _FEISHU_MSG_URL,
+                params={"receive_id_type": "open_id"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json={
+                    "receive_id": self.open_id,
+                    **message_body,
+                },
+                timeout=_REQUEST_TIMEOUT,
+            )
+            data = resp.json()
+            return data.get("code") == 0
+        except Exception as e:
+            print(f"[feishu-notify] 发送消息异常: {e}", file=sys.stderr)
+            return False

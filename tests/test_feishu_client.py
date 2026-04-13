@@ -167,3 +167,35 @@ def test_build_permission_card():
     assert "⚠️" in full_text
     assert "Bash" in full_text
     assert "rm -rf /tmp/test" in full_text
+
+
+def test_send_message_success():
+    """成功发送消息应返回 True"""
+    from feishu_client import FeishuClient
+    mock_token_resp = Mock()
+    mock_token_resp.status_code = 200
+    mock_token_resp.json.return_value = {"code": 0, "tenant_access_token": "t-test", "expire": 7200}
+    mock_send_resp = Mock()
+    mock_send_resp.status_code = 200
+    mock_send_resp.json.return_value = {"code": 0, "msg": "success"}
+    with patch("feishu_client.requests.post") as mock_post:
+        mock_post.side_effect = [mock_token_resp, mock_send_resp]
+        client = FeishuClient({"app_id": "cli_test", "app_secret": "secret_test", "open_id": "ou_test"})
+        result = client.send_message({"msg_type": "text", "content": '{"text":"hi"}'})
+    assert result is True
+
+
+def test_send_message_api_error():
+    """飞书 API 返回错误时应重试一次，仍失败返回 False"""
+    from feishu_client import FeishuClient
+    mock_token_resp = Mock()
+    mock_token_resp.status_code = 200
+    mock_token_resp.json.return_value = {"code": 0, "tenant_access_token": "t-test", "expire": 7200}
+    mock_send_resp = Mock()
+    mock_send_resp.status_code = 200
+    mock_send_resp.json.return_value = {"code": 9999, "msg": "error"}
+    with patch("feishu_client.requests.post") as mock_post:
+        mock_post.side_effect = [mock_token_resp, mock_send_resp, mock_token_resp, mock_send_resp]
+        client = FeishuClient({"app_id": "cli_test", "app_secret": "secret_test", "open_id": "ou_test"})
+        result = client.send_message({"msg_type": "text", "content": '{"text":"hi"}'})
+    assert result is False
