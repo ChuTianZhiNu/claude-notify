@@ -24,9 +24,11 @@ def test_main_stop_event():
     with patch("sys.stdin") as mock_stdin, \
          patch("notify.load_config") as mock_load, \
          patch("notify.FeishuClient") as mock_client_cls, \
+         patch("notify.WebhookClient") as mock_webhook_cls, \
          patch("notify.sys.exit", side_effect=SystemExit):
         mock_stdin.read.return_value = json.dumps(stdin_data)
         mock_config = {
+            "notify_type": "api",
             "app_id": "cli_test",
             "app_secret": "secret_test",
             "open_id": "ou_test",
@@ -58,9 +60,11 @@ def test_main_permission_event():
     with patch("sys.stdin") as mock_stdin, \
          patch("notify.load_config") as mock_load, \
          patch("notify.FeishuClient") as mock_client_cls, \
+         patch("notify.WebhookClient") as mock_webhook_cls, \
          patch("notify.sys.exit", side_effect=SystemExit):
         mock_stdin.read.return_value = json.dumps(stdin_data)
         mock_config = {
+            "notify_type": "api",
             "app_id": "cli_test",
             "app_secret": "secret_test",
             "open_id": "ou_test",
@@ -105,3 +109,95 @@ def test_main_notify_disabled():
         with pytest.raises(SystemExit):
             main("stop")
     mock_client_cls.assert_not_called()
+
+
+def test_main_webhook_mode():
+    """notify_type=webhook 时应使用 WebhookClient"""
+    stdin_data = {
+        "hook_event_name": "Stop",
+        "cwd": "/test",
+        "last_assistant_message": "done",
+    }
+    with patch("sys.stdin") as mock_stdin, \
+         patch("notify.load_config") as mock_load, \
+         patch("notify.WebhookClient") as mock_webhook_cls, \
+         patch("notify.FeishuClient") as mock_api_cls, \
+         patch("notify.sys.exit", side_effect=SystemExit):
+        mock_stdin.read.return_value = json.dumps(stdin_data)
+        mock_config = {
+            "notify_type": "webhook",
+            "webhook_url": "https://example.com/hook/xxx",
+            "notify_on_stop": True,
+            "notify_on_permission": True,
+            "max_summary_length": 200,
+        }
+        mock_load.return_value = mock_config
+        mock_client = MagicMock()
+        mock_client.send_message.return_value = True
+        mock_client.build_stop_card.return_value = {"msg_type": "interactive", "content": "{}"}
+        mock_webhook_cls.return_value = mock_client
+        from notify import main
+        with pytest.raises(SystemExit):
+            main("stop")
+    mock_webhook_cls.assert_called_once()
+    mock_api_cls.assert_not_called()
+
+
+def test_main_api_mode():
+    """notify_type=api 时应使用 FeishuClient"""
+    stdin_data = {
+        "hook_event_name": "Stop",
+        "cwd": "/test",
+        "last_assistant_message": "done",
+    }
+    with patch("sys.stdin") as mock_stdin, \
+         patch("notify.load_config") as mock_load, \
+         patch("notify.WebhookClient") as mock_webhook_cls, \
+         patch("notify.FeishuClient") as mock_api_cls, \
+         patch("notify.sys.exit", side_effect=SystemExit):
+        mock_stdin.read.return_value = json.dumps(stdin_data)
+        mock_config = {
+            "notify_type": "api",
+            "app_id": "cli_test",
+            "app_secret": "secret",
+            "open_id": "ou_test",
+            "notify_on_stop": True,
+            "notify_on_permission": True,
+            "max_summary_length": 200,
+        }
+        mock_load.return_value = mock_config
+        mock_client = MagicMock()
+        mock_client.send_message.return_value = True
+        mock_client.build_stop_card.return_value = {"msg_type": "interactive", "content": "{}"}
+        mock_api_cls.return_value = mock_client
+        from notify import main
+        with pytest.raises(SystemExit):
+            main("stop")
+    mock_api_cls.assert_called_once()
+    mock_webhook_cls.assert_not_called()
+
+
+def test_main_missing_webhook_url():
+    """webhook 模式缺少 webhook_url 时不应崩溃"""
+    stdin_data = {
+        "hook_event_name": "Stop",
+        "cwd": "/test",
+        "last_assistant_message": "done",
+    }
+    with patch("sys.stdin") as mock_stdin, \
+         patch("notify.load_config") as mock_load, \
+         patch("notify.WebhookClient") as mock_webhook_cls, \
+         patch("notify.sys.exit", side_effect=SystemExit):
+        mock_stdin.read.return_value = json.dumps(stdin_data)
+        mock_config = {
+            "notify_type": "webhook",
+            "webhook_url": "",
+            "notify_on_stop": True,
+            "notify_on_permission": True,
+            "max_summary_length": 200,
+        }
+        mock_load.return_value = mock_config
+        from notify import main
+        with pytest.raises(SystemExit):
+            main("stop")
+    mock_webhook_cls.assert_not_called()

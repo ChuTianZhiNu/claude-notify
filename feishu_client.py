@@ -11,6 +11,7 @@ _REQUEST_TIMEOUT = 5
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 DEFAULTS = {
+    "notify_type": "webhook",
     "notify_on_stop": True,
     "notify_on_permission": True,
     "max_summary_length": 200,
@@ -29,6 +30,58 @@ def load_config(path=None):
     for key, value in DEFAULTS.items():
         config.setdefault(key, value)
     return config
+
+
+def build_stop_card(cwd, status, summary, max_length=200):
+    """构建任务完成通知卡片。"""
+    if status == "success":
+        status_tag = "✅ 任务完成"
+    else:
+        status_tag = "❌ 任务失败"
+    if summary and len(summary) > max_length:
+        summary = summary[: max_length - 3] + "..."
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    elements = [
+        {"tag": "markdown", "content": f"**{status_tag}**"},
+        {"tag": "hr"},
+        {"tag": "markdown", "content": f"📁 **项目:** `{cwd}`"},
+    ]
+    if summary:
+        elements.append({"tag": "markdown", "content": f"📝 **摘要:** {summary}"})
+    elements.append({"tag": "hr"})
+    elements.append({"tag": "markdown", "content": f"🕐 {now}"})
+    card = {
+        "header": {"title": {"tag": "plain_text", "content": "Claude Code 通知"}},
+        "elements": elements,
+    }
+    return {
+        "msg_type": "interactive",
+        "content": json.dumps(card),
+    }
+
+
+def build_permission_card(cwd, tool_name, tool_input):
+    """构建权限审批通知卡片。"""
+    input_str = json.dumps(tool_input, ensure_ascii=False, indent=2) if tool_input else "无"
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    elements = [
+        {"tag": "markdown", "content": "**⚠️ 需要权限审批**"},
+        {"tag": "hr"},
+        {"tag": "markdown", "content": f"📁 **项目:** `{cwd}`"},
+        {"tag": "markdown", "content": f"🔧 **工具:** `{tool_name}`"},
+        {"tag": "hr"},
+        {"tag": "markdown", "content": f"📋 **请求内容:**\n```\n{input_str}\n```"},
+        {"tag": "hr"},
+        {"tag": "markdown", "content": f"🕐 {now}"},
+    ]
+    card = {
+        "header": {"title": {"tag": "plain_text", "content": "Claude Code 权限审批"}},
+        "elements": elements,
+    }
+    return {
+        "msg_type": "interactive",
+        "content": json.dumps(card),
+    }
 
 
 class FeishuClient:
@@ -60,53 +113,11 @@ class FeishuClient:
 
     def build_stop_card(self, cwd, status, summary, max_length=200):
         """构建任务完成通知卡片。"""
-        if status == "success":
-            status_tag = "✅ 任务完成"
-        else:
-            status_tag = "❌ 任务失败"
-        if summary and len(summary) > max_length:
-            summary = summary[: max_length - 3] + "..."
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        elements = [
-            {"tag": "markdown", "content": f"**{status_tag}**"},
-            {"tag": "hr"},
-            {"tag": "markdown", "content": f"📁 **项目:** `{cwd}`"},
-        ]
-        if summary:
-            elements.append({"tag": "markdown", "content": f"📝 **摘要:** {summary}"})
-        elements.append({"tag": "hr"})
-        elements.append({"tag": "markdown", "content": f"🕐 {now}"})
-        card = {
-            "header": {"title": {"tag": "plain_text", "content": "Claude Code 通知"}},
-            "elements": elements,
-        }
-        return {
-            "msg_type": "interactive",
-            "content": json.dumps(card),
-        }
+        return build_stop_card(cwd, status, summary, max_length)
 
     def build_permission_card(self, cwd, tool_name, tool_input):
         """构建权限审批通知卡片。"""
-        input_str = json.dumps(tool_input, ensure_ascii=False, indent=2) if tool_input else "无"
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        elements = [
-            {"tag": "markdown", "content": "**⚠️ 需要权限审批**"},
-            {"tag": "hr"},
-            {"tag": "markdown", "content": f"📁 **项目:** `{cwd}`"},
-            {"tag": "markdown", "content": f"🔧 **工具:** `{tool_name}`"},
-            {"tag": "hr"},
-            {"tag": "markdown", "content": f"📋 **请求内容:**\n```\n{input_str}\n```"},
-            {"tag": "hr"},
-            {"tag": "markdown", "content": f"🕐 {now}"},
-        ]
-        card = {
-            "header": {"title": {"tag": "plain_text", "content": "Claude Code 权限审批"}},
-            "elements": elements,
-        }
-        return {
-            "msg_type": "interactive",
-            "content": json.dumps(card),
-        }
+        return build_permission_card(cwd, tool_name, tool_input)
 
     def send_message(self, message_body):
         """发送消息到飞书，失败自动重试一次（清除 token 缓存）。"""
@@ -153,4 +164,37 @@ class FeishuClient:
             return data.get("code") == 0
         except Exception as e:
             print(f"[feishu-notify] 发送消息异常: {e}", file=sys.stderr)
+            return False
+
+
+class WebhookClient:
+    def __init__(self, config):
+        self.webhook_url = config["webhook_url"]
+
+    def get_access_token(self):
+        return True  # Webhook 不需要 token
+
+    def build_stop_card(self, cwd, status, summary, max_length=200):
+        """构建任务完成通知卡片。"""
+        return build_stop_card(cwd, status, summary, max_length)
+
+    def build_permission_card(self, cwd, tool_name, tool_input):
+        """构建权限审批通知卡片。"""
+        return build_permission_card(cwd, tool_name, tool_input)
+
+    def send_message(self, message_body):
+        """通过 Webhook 发送消息。"""
+        try:
+            resp = requests.post(
+                self.webhook_url,
+                json=message_body,
+                timeout=_REQUEST_TIMEOUT,
+            )
+            data = resp.json()
+            if data.get("code") == 0:
+                return True
+            print(f"[feishu-notify] Webhook 发送失败: {data.get('msg')}", file=sys.stderr)
+            return False
+        except Exception as e:
+            print(f"[feishu-notify] Webhook 发送异常: {e}", file=sys.stderr)
             return False

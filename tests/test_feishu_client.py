@@ -43,7 +43,14 @@ def test_load_config_valid():
         path = f.name
     try:
         result = load_config(path)
-        assert result == config_data
+        # load_config 会自动填充默认值（如 notify_type）
+        assert result["app_id"] == config_data["app_id"]
+        assert result["app_secret"] == config_data["app_secret"]
+        assert result["open_id"] == config_data["open_id"]
+        assert result["notify_on_stop"] is True
+        assert result["notify_on_permission"] is True
+        assert result["max_summary_length"] == 200
+        assert result["notify_type"] == "webhook"  # 默认值
     finally:
         os.unlink(path)
 
@@ -199,3 +206,44 @@ def test_send_message_api_error():
         client = FeishuClient({"app_id": "cli_test", "app_secret": "secret_test", "open_id": "ou_test"})
         result = client.send_message({"msg_type": "text", "content": '{"text":"hi"}'})
     assert result is False
+
+
+def test_webhook_client_send_success():
+    """Webhook 发送成功应返回 True"""
+    from feishu_client import WebhookClient
+    mock_resp = Mock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"code": 0, "msg": "success"}
+    with patch("feishu_client.requests.post", return_value=mock_resp) as mock_post:
+        client = WebhookClient({"webhook_url": "https://example.com/hook/xxx"})
+        result = client.send_message({"msg_type": "interactive", "content": "{}"})
+    assert result is True
+    mock_post.assert_called_once()
+
+
+def test_webhook_client_send_failure():
+    """Webhook 发送失败应返回 False"""
+    from feishu_client import WebhookClient
+    mock_resp = Mock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"code": 9999, "msg": "error"}
+    with patch("feishu_client.requests.post", return_value=mock_resp):
+        client = WebhookClient({"webhook_url": "https://example.com/hook/xxx"})
+        result = client.send_message({"msg_type": "interactive", "content": "{}"})
+    assert result is False
+
+
+def test_webhook_client_build_stop_card():
+    """WebhookClient 的 build_stop_card 应与 FeishuClient 一致"""
+    from feishu_client import WebhookClient
+    client = WebhookClient({"webhook_url": "https://example.com/hook/xxx"})
+    card = client.build_stop_card(cwd="/test", status="success", summary="done")
+    assert card["msg_type"] == "interactive"
+
+
+def test_webhook_client_build_permission_card():
+    """WebhookClient 的 build_permission_card 应与 FeishuClient 一致"""
+    from feishu_client import WebhookClient
+    client = WebhookClient({"webhook_url": "https://example.com/hook/xxx"})
+    card = client.build_permission_card(cwd="/test", tool_name="Bash", tool_input={"command": "ls"})
+    assert card["msg_type"] == "interactive"

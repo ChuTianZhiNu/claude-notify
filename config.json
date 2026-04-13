@@ -1,4 +1,6 @@
 {
+  "notify_type": "webhook",
+  "webhook_url": "",
   "app_id": "",
   "app_secret": "",
   "open_id": "",
