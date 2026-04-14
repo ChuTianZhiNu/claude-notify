@@ -8,6 +8,7 @@
   "notify_on_permission": true,
   "max_summary_length": 200,
   "min_task_duration": 120,
-  "debounce_seconds": 20,
-  "permission_tools": ["Bash", "Write", "Edit"]
+  "debounce_seconds": 30,
+  "permission_tools": ["Bash", "Write", "Edit"],
+  "interactive_tools": ["AskUserQuestion"]
 }

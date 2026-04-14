@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from feishu_client import load_config, FeishuClient, WebhookClient, TIMESTAMPS_DIR
 
 PENDING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".pending")
-
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 NOTIFY_SCRIPT = os.path.join(PLUGIN_DIR, "notify.py")
 
@@ -106,6 +105,19 @@ def send_pending(pending_file):
             os.remove(pending_file)
 
 
+def schedule_pending(pending_file, data, debounce_seconds):
+    """写入 pending 文件并调度后台延迟发送。"""
+    os.makedirs(PENDING_DIR, exist_ok=True)
+    with open(pending_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    subprocess.Popen(
+        f"sleep {debounce_seconds} && python3 {NOTIFY_SCRIPT} flush_pending {pending_file}",
+        shell=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def main(event_type):
     """Claude Code Hook 入口。"""
     config = load_config()
@@ -145,6 +157,8 @@ def main(event_type):
 
     cwd = context.get("cwd", "unknown")
     max_length = config.get("max_summary_length", 200)
+    debounce_seconds = config.get("debounce_seconds", 30)
+    pending_file = os.path.join(PENDING_DIR, f"{session_id}.json")
 
     if event_type == "stop":
         if context.get("stop_hook_active"):
@@ -162,36 +176,35 @@ def main(event_type):
             seconds = int(duration % 60)
             summary = f"[耗时 {minutes}分{seconds}秒] {summary}"
 
-        # 写入 pending 文件，延迟发送（防抖）
-        debounce_seconds = config.get("debounce_seconds", 20)
-        os.makedirs(PENDING_DIR, exist_ok=True)
-        pending_file = os.path.join(PENDING_DIR, f"{session_id}.json")
-        with open(pending_file, "w", encoding="utf-8") as f:
-            json.dump({
-                "msg_type": "stop",
-                "cwd": cwd,
-                "summary": summary,
-                "max_length": max_length,
-            }, f, ensure_ascii=False)
-
-        # 后台等待 debounce_seconds 后检查并发送
-        subprocess.Popen(
-            f"sleep {debounce_seconds} && python3 {NOTIFY_SCRIPT} flush_pending {pending_file}",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        schedule_pending(pending_file, {
+            "msg_type": "stop",
+            "cwd": cwd,
+            "summary": summary,
+            "max_length": max_length,
+        }, debounce_seconds)
 
     elif event_type == "permission":
         tool_name = context.get("tool_name", "Unknown")
-        # 只对白名单中的工具发通知，过滤交互类工具（如 AskUserQuestion）
-        permission_tools = config.get("permission_tools", ["Bash", "Write", "Edit"])
-        if tool_name not in permission_tools:
-            sys.exit(0)
         tool_input = context.get("tool_input", {})
-        # 权限审批立即发送，不做防抖
-        card = client.build_permission_card(cwd=cwd, tool_name=tool_name, tool_input=tool_input)
-        client.send_message(card)
+
+        permission_tools = config.get("permission_tools", ["Bash", "Write", "Edit"])
+        interactive_tools = config.get("interactive_tools", ["AskUserQuestion"])
+
+        if tool_name in permission_tools:
+            # 真正权限审批：立即发送
+            card = client.build_permission_card(cwd=cwd, tool_name=tool_name, tool_input=tool_input)
+            client.send_message(card)
+        elif tool_name in interactive_tools:
+            # superpowers 交互提示：延迟发送（防抖）
+            schedule_pending(pending_file, {
+                "msg_type": "permission",
+                "cwd": cwd,
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+            }, debounce_seconds)
+        else:
+            # 其他工具不通知
+            sys.exit(0)
 
     sys.exit(0)
 
