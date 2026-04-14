@@ -190,12 +190,8 @@ def main(event_type):
         permission_tools = config.get("permission_tools", ["Bash", "Write", "Edit"])
         interactive_tools = config.get("interactive_tools", ["AskUserQuestion"])
 
-        if tool_name in permission_tools:
-            # 真正权限审批：立即发送
-            card = client.build_permission_card(cwd=cwd, tool_name=tool_name, tool_input=tool_input)
-            client.send_message(card)
-        elif tool_name in interactive_tools:
-            # superpowers 交互提示：延迟发送（防抖）
+        if tool_name in permission_tools or tool_name in interactive_tools:
+            # 权限审批和交互提示都走延迟发送（防抖）
             schedule_pending(pending_file, {
                 "msg_type": "permission",
                 "cwd": cwd,
